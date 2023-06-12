@@ -1,40 +1,88 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
 using SingletonMonoBehaviour;
+using System;
 
 public class RefBook : SingletonMonoBehaviour<RefBook>
 {
     protected override bool dontDestroyOnLoad => true;
 
-    [Sirenix.OdinInspector.ShowInInspector] Dictionary<System.Type, List<object>> References = new Dictionary<System.Type, List<object>>();
+#if ODIN_INSPECTOR
+    [Sirenix.OdinInspector.ShowInInspector]
+#endif
+    Dictionary<System.Type, List<object>> References = new Dictionary<System.Type, List<object>>();
 
-    protected override void AwakeInternal() { }
-    protected override void OnValidateInternal() { }
+    System.Type _lastAddedType;
+    System.Type _lastAddTryType;
+    System.Type _lastAccessedType;
+    System.Type _lastRemovedType;
 
-    [Sirenix.OdinInspector.ShowInInspector] System.Type lastAddedType;
-    [Sirenix.OdinInspector.ShowInInspector] System.Type lastAccessedType;
-    [Sirenix.OdinInspector.ShowInInspector] System.Type lastRemovedType;
+    public static bool AddWithInterfaces(object obj)
+    {
+        bool isAllReferencesAdded = true;
+
+        try
+        {
+            AddOnlyInterfaces(obj);
+            Instance.AddInternal(obj);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error while adding {obj} as type {Instance._lastAddTryType}. Error : {e}");
+            isAllReferencesAdded = false;
+        }
+
+        return isAllReferencesAdded;
+    }
+
+    public static bool AddOnlyInterfaces(object obj)
+    {
+        bool isAllReferencesAdded = true;
+
+        try
+        {
+            Type[] interfaces = obj.GetType().GetInterfaces();
+
+            foreach (var interfaceType in interfaces)
+            {
+                Instance._lastAddTryType = interfaceType;
+                Instance.AddInternal(interfaceType, obj);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error while adding {obj} as type {Instance._lastAddTryType}. Error : {e}");
+            isAllReferencesAdded = false;
+        }
+
+        return isAllReferencesAdded;
+    }
 
     public static bool Add(object obj) => Instance.AddInternal(obj);
-    protected virtual bool AddInternal(object obj)
+    protected virtual bool AddInternal(object obj) => AddInternal(obj.GetType(), obj);
+
+    protected virtual bool AddInternal(Type type, object obj)
     {
-        lastAddedType = obj.GetType();
+        _lastAddedType = type;
 
-        if (!References.ContainsKey(lastAddedType))
-            References.Add(lastAddedType, new List<object>());
+        if (!References.ContainsKey(_lastAddedType))
+            References.Add(_lastAddedType, new List<object>());
 
-        if (References[lastAddedType].Contains(obj))
+        if (References[_lastAddedType].Contains(obj))
         {
-            Debug.LogError($"References already contains obj of type : {lastAddedType},{obj}! Can't add...");
+            Debug.LogError($"References already contains obj of type : {_lastAddedType},{obj}! Can't add...");
             return false;
         }
 
-        References[lastAddedType].Add(obj);
+        References[_lastAddedType].Add(obj);
         return true;
     }
 
+    /// <summary>
+    /// Tries to get obj with type T in access index
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
     public static bool TryGet<T>(out T obj, int accessIndex = 0) where T : class => Instance.TryGetInternal(out obj, accessIndex);
 
     /// <summary>
@@ -43,14 +91,14 @@ public class RefBook : SingletonMonoBehaviour<RefBook>
     /// <typeparam name="T"></typeparam>
     protected virtual bool TryGetInternal<T>(out T obj, int accessIndex = 0) where T : class
     {
-        lastAccessedType = typeof(T);
+        _lastAccessedType = typeof(T);
 
         try
         {
-            if (References.ContainsKey(lastAccessedType))
-                if (References[lastAccessedType].Count > accessIndex)
+            if (References.ContainsKey(_lastAccessedType))
+                if (References[_lastAccessedType].Count > accessIndex)
                 {
-                    obj = References[lastAccessedType][accessIndex] as T;
+                    obj = References[_lastAccessedType][accessIndex] as T;
                     return true;
                 }
 
@@ -59,16 +107,20 @@ public class RefBook : SingletonMonoBehaviour<RefBook>
         }
         catch (System.Exception e)
         {
-            Debug.LogError($"Error while trying to get a Reference of type : {lastAccessedType}! Error : {e}");
+            Debug.LogError($"Error while trying to get a Reference of type : {_lastAccessedType}! Error : {e}");
             obj = default;
             return false;
         }
     }
 
+    /// <summary>
+    /// Tries to get object with given T type in given access index
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
     public static bool TryGet<T>(out T obj, System.Type type, int accessIndex = 0) where T : class => Instance.TryGetInternal(out obj, type, accessIndex);
     protected virtual bool TryGetInternal<T>(out T obj, System.Type type, int accessIndex = 0) where T : class
     {
-        lastAccessedType = type;
+        _lastAccessedType = type;
 
         try
         {
@@ -84,16 +136,23 @@ public class RefBook : SingletonMonoBehaviour<RefBook>
         }
         catch (System.Exception e)
         {
-            Debug.LogError($"Error while trying to get a Reference of type : {lastAccessedType}! Error : {e}");
+            Debug.LogError($"Error while trying to get a Reference of type : {_lastAccessedType}! Error : {e}");
             obj = default;
             return false;
         }
     }
 
+    /// <summary>
+    /// Tries to get obj with given type in given access index
+    /// </summary>
+    /// <param name="obj"></param>
+    /// <param name="type"></param>
+    /// <param name="accessIndex"></param>
+    /// <returns></returns>
     public static bool TryGet(out object obj, System.Type type, int accessIndex = 0) => Instance.TryGetInternal(out obj, type, accessIndex);
     protected virtual bool TryGetInternal(out object obj, System.Type type, int accessIndex = 0)
     {
-        lastAccessedType = type;
+        _lastAccessedType = type;
 
         try
         {
@@ -109,7 +168,7 @@ public class RefBook : SingletonMonoBehaviour<RefBook>
         }
         catch (System.Exception e)
         {
-            Debug.LogError($"Error while trying to get a Reference of type : {lastAccessedType}! Error : {e}");
+            Debug.LogError($"Error while trying to get a Reference of type : {_lastAccessedType}! Error : {e}");
             obj = default;
             return false;
         }
@@ -127,88 +186,157 @@ public class RefBook : SingletonMonoBehaviour<RefBook>
 
     protected virtual bool TryGetAllInternal<T>(List<T> objs)
     {
-        lastAccessedType = typeof(T);
+        _lastAccessedType = typeof(T);
 
         try
         {
-            objs.AddRange(References[lastAccessedType].Cast<T>());
+            objs.AddRange(References[_lastAccessedType].Cast<T>());
             return true;
         }
         catch (System.Exception e)
         {
-            //Debug.LogError($"Error while trying to get a Reference of type : {lastAccessedType}! Error : {e}");
-            //objs = default;
+            Debug.LogError($"Error while trying to get a Reference of type : {_lastAccessedType}! Error : {e}");
+            objs = null;
             return false;
         }
     }
 
-    public static bool TryGetAll(System.Type type, ref List<object> objs) => Instance.TryGetAllInternal(type, ref objs);
+    /// <summary>
+    /// Tries to get all of the objects with the specified type to given reference list
+    /// </summary>
+    /// <param name="type"></param>
+    /// <param name="objs"></param>
+    /// <returns></returns>
+    public static bool TryGetAll(System.Type type, List<object> objs) => Instance.TryGetAllInternal(type, objs);
     public static List<object> TryGetAll(System.Type type)
     {
         List<object> allReferences = new List<object>();
 
-        if (Instance.TryGetAllInternal(type, ref allReferences))
+        if (Instance.TryGetAllInternal(type, allReferences))
             return allReferences;
 
         return Enumerable.Empty<object>() as List<object>;
     }
 
-    protected virtual bool TryGetAllInternal(System.Type type, ref List<object> objs)
+    protected virtual bool TryGetAllInternal(System.Type type, List<object> objs)
     {
-        lastAccessedType = type;
+        _lastAccessedType = type;
 
         try
         {
-            objs = References[lastAccessedType].ToList();
+            objs = References[_lastAccessedType];
             return true;
         }
         catch (System.Exception e)
         {
-            //Debug.LogError($"Error while trying to get a Reference of type : {lastAccessedType}! Error : {e}");
-            //objs = default;
+            Debug.LogError($"Error while trying to get a Reference of type : {_lastAccessedType}! Error : {e}");
+            objs = null;
             return false;
         }
     }
 
-    public static bool Remove(object obj) => Instance.RemoveInternal(obj);
-    protected bool RemoveInternal(object obj)
+    /// <summary>
+    /// Remove given object with its interfaces
+    /// </summary>
+    /// <param name="obj"></param>
+    /// <returns></returns>
+    public static bool RemoveWithInterfaces(object obj)
     {
-        lastRemovedType = obj.GetType();
+        bool isAllReferencesAdded = true;
 
-        if (!References.ContainsKey(lastRemovedType))
+        try
         {
-            Debug.LogError($"There is no reference of type : {lastRemovedType}");
+            RemoveOnlyInterfaces(obj);
+            Instance.RemoveInternal(obj);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error while adding {obj} as type {Instance._lastAddTryType}. Error : {e}");
+            isAllReferencesAdded = false;
+        }
+
+        return isAllReferencesAdded;
+    }
+
+    /// <summary>
+    /// Removes only the interfaces of the given obj
+    /// </summary>
+    /// <param name="obj"></param>
+    /// <returns></returns>
+    public static bool RemoveOnlyInterfaces(object obj)
+    {
+        bool isAllReferencesRemoved = true;
+
+        try
+        {
+            Type[] interfaces = obj.GetType().GetInterfaces();
+
+            foreach (var interfaceType in interfaces)
+            {
+                Instance._lastAddTryType = interfaceType;
+                Instance.RemoveInternal(interfaceType, obj);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error while removing {obj} as type {Instance._lastAddTryType}. Error : {e}");
+            isAllReferencesRemoved = false;
+        }
+
+        return isAllReferencesRemoved;
+    }
+
+    /// <summary>
+    /// Removes given object with its type
+    /// </summary>
+    /// <param name="obj"></param>
+    /// <returns></returns>
+    public static bool Remove(object obj) => Instance.RemoveInternal(obj);
+    protected bool RemoveInternal(object obj) => RemoveInternal(obj.GetType(), obj);
+    protected bool RemoveInternal(Type type, object obj)
+    {
+        _lastRemovedType = type;
+
+        if (!References.ContainsKey(_lastRemovedType))
+        {
+            Debug.LogError($"There is no reference of type : {_lastRemovedType}");
             return false;
         }
 
-        if (!References[lastRemovedType].Contains(obj))
+        if (!References[_lastRemovedType].Contains(obj))
         {
-            Debug.LogError($"There is no obj found in references of type : {lastRemovedType},{obj}");
+            Debug.LogError($"There is no obj found in references of type : {_lastRemovedType},{obj}");
             return false;
         }
 
-        References[obj.GetType()].Remove(obj);
+        References[_lastRemovedType].Remove(obj);
         return true;
     }
 
+    /// <summary>
+    /// Removes obj of a given type in given index
+    /// </summary>
+    /// <param name="type"></param>
+    /// <param name="Index"></param>
+    /// <returns></returns>
     public static bool RemoveAtIndex(System.Type type, int Index = 0) => Instance.RemoveAtIndexInternal(type, Index);
     protected bool RemoveAtIndexInternal(System.Type type, int Index = 0)
     {
-        lastRemovedType = type;
+        _lastRemovedType = type;
 
-        if (!References.ContainsKey(lastRemovedType))
+        if (!References.ContainsKey(_lastRemovedType))
         {
-            Debug.LogError($"There is no reference of type : {lastRemovedType}");
+            Debug.LogError($"There is no reference of type : {_lastRemovedType}");
             return false;
         }
 
-        if (References[lastRemovedType].Count <= Index)
+        if (References[_lastRemovedType].Count <= Index)
         {
-            Debug.LogError($"There is no Index : {Index} in References of type :{lastRemovedType}");
+            Debug.LogError($"There is no Index : {Index} in References of type :{_lastRemovedType}");
             return false;
         }
 
-        References[lastRemovedType].RemoveAt(Index);
+        References[_lastRemovedType].RemoveAt(Index);
         return true;
     }
 }
